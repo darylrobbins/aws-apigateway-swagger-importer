@@ -55,6 +55,9 @@ public class ApiImporterMain {
     @Parameter(names = {"--format", "-f"}, description = "Input format")
     private String format = "swagger";
 
+    @Parameter(names = {"--profile", "-p"}, description = "AWS CLI profile to use")
+    private String profile = "default";
+
     @Parameter(names = "--help", help = true)
     private boolean help;
 
@@ -83,7 +86,7 @@ public class ApiImporterMain {
             System.exit(1);
         }
 
-        AwsConfig config = new AwsConfig();
+        AwsConfig config = new AwsConfig(profile);
         try {
             config.load();
         } catch (Throwable t) {
