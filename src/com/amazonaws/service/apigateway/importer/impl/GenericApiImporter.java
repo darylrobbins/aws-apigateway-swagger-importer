@@ -23,6 +23,7 @@ public abstract class GenericApiImporter {
     protected static final String DEFAULT_PRODUCES_CONTENT_TYPE = "application/json";
     protected static final String EXTENSION_AUTH = "x-amazon-apigateway-auth";
     protected static final String EXTENSION_INTEGRATION = "x-amazon-apigateway-integration";
+
     @Inject
     protected ApiGateway apiGateway;
 

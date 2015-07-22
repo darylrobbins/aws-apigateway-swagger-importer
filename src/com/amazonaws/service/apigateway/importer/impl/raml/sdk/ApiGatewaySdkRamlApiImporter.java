@@ -23,7 +23,7 @@ import static java.lang.String.format;
 public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements RamlApiImporter  {
 
     private static final Log LOG = LogFactory.getLog(ApiGatewaySdkRamlApiImporter.class);
-
+    private static final String NAME_SANITIZE_REGEX = "[^A-Za-z0-9-]";
     @Inject
     private Raml raml;
 
@@ -37,8 +37,8 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
         try {
             final Resource rootResource = getRootResource(api).get();
             deleteDefaultModels(api);
-            createModels(api, raml.getConsolidatedSchemas(), raml.getMediaType());
-            createResources(api, rootResource, raml.getBasePath(), raml.getMediaType(), raml.getResources(), true);
+            createModels(api, raml.getConsolidatedSchemas());
+            createResources(api, rootResource, raml.getBasePath(), raml.getResources(), true);
         } catch (Throwable t) {
             getLog().error("Error creating API, rolling back", t);
             rollback(api);
@@ -47,9 +47,14 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
         return api.getId();
     }
 
-    private void createModels(RestApi api, Map<String, String> consolidatedSchemas, String mediaType) {
+    private void createModels(RestApi api, Map<String, String> consolidatedSchemas) {
         for (Map.Entry<String, String> entry : consolidatedSchemas.entrySet()) {
-            createModel(api, entry.getKey(), "Automatically imported", entry.getValue(), mediaType);
+            String schemaType = raml.getMediaType();
+            String schema = entry.getValue();
+            if (schemaType == null) {
+                schemaType = schema.startsWith("{") ? "application/json" : "application/xml";
+            }
+            createModel(api, entry.getKey(), "Automatically imported", schema, schemaType);
         }
 
     }
@@ -66,7 +71,7 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
     }
 
 
-    private void createResources(RestApi api, Resource rootResource, String basePath, String apiProduces, Map<String, org.raml.model.Resource> paths, boolean createMethods) {
+    private void createResources(RestApi api, Resource rootResource, String basePath, Map<String, org.raml.model.Resource> paths, boolean createMethods) {
         //build path tree
 
         for (Map.Entry<String, org.raml.model.Resource> entry : paths.entrySet()) {
@@ -86,12 +91,12 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
                 parentPart = parts[i];
             }
 
-            createResources(api, rootResource, fullPath, raml.getMediaType(), entry.getValue().getResources(), createMethods);
+            createResources(api, rootResource, fullPath, entry.getValue().getResources(), createMethods);
 
             // Create resources for children
             if (createMethods) {
                 // create methods on the leaf resource for each path
-                createMethods(api, parentResource, entry.getValue(), apiProduces);
+                createMethods(api, parentResource, entry.getValue());
             }
         }
     }
@@ -104,19 +109,18 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
         return title.toString();
     }
 
-    private void createMethods(final RestApi api, final Resource resource, org.raml.model.Resource path, String apiProduces) {
+    private void createMethods(final RestApi api, final Resource resource, org.raml.model.Resource path) {
         final Map<ActionType, Action> actions = path.getActions();
 
         actions.entrySet().forEach(x -> {
             getLog().info(format("Creating method for api id %s and resource id %s with method %s", api.getId(), resource.getId(), x.getKey()));
-            createMethod(api, resource, x.getKey(), x.getValue(), apiProduces);
+            createMethod(api, resource, x.getKey(), x.getValue());
 
             sleep();
         });
     }
 
-    public void createMethod(RestApi api, Resource resource, ActionType httpMethod,
-                             Action action, String modelContentType) {
+    public void createMethod(RestApi api, Resource resource, ActionType httpMethod, Action action) {
         PutMethodInput input = new PutMethodInput();
 
         input.setApiKeyRequired(isApiKeyRequired(action));
@@ -125,9 +129,67 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
         // create method
         Method method = resource.putMethod(input, httpMethod.toString());
 
-//        createMethodResponses(api, method, modelContentType, op.getResponses());
+        createMethodResponses(api, method, action.getResponses());
 //        createMethodParameters(api, method, op.getParameters());
 //        createIntegration(method, op.getVendorExtensions());
+    }
+
+    private void createMethodResponses(RestApi api, Method method, Map<String, Response> responses) {
+        if (responses != null) {
+            responses.entrySet().forEach(entry -> {
+                String status = entry.getKey();
+                if (status.equals("default")) {
+                    getLog().warn("Default response not supported, skipping");
+                } else {
+                    getLog().info(format("Creating method response for api %s and method %s and status %s",
+                            api.getId(),
+                            method.getHttpMethod(),
+                            status));
+                    final PutMethodResponseInput input = createResponseInput(api, status, entry.getValue());
+                    method.putMethodResponse(input, status);
+                }
+
+            });
+        }
+    }
+
+    private PutMethodResponseInput createResponseInput(RestApi api, String status, Response response) {
+        final PutMethodResponseInput input = new PutMethodResponseInput();
+
+        //set response headers
+        if (response.getHeaders() != null) {
+            HashMap<String, Boolean> responseParameters = new HashMap<>();
+            response.getHeaders().entrySet().forEach( entry ->{
+                responseParameters.put("method.response.header." + entry.getKey(), entry.getValue().isRequired());
+            });
+            input.setResponseParameters(responseParameters);
+        }
+
+        if (response.hasBody()){
+            Map<String, String> responseModels = new HashMap<>();
+            response.getBody().entrySet().forEach( entry -> {
+                String schema = entry.getValue().getSchema();
+                String contentType = entry.getKey();
+                if (schema != null) {
+                    String modelName;
+                    Optional<Model> modelOpt = getModel(api, schema);
+
+                    if (modelOpt.isPresent()) {
+                        modelName = modelOpt.get().getName();
+
+                    } else {
+                        modelName = (status + "-" + contentType).replaceAll(NAME_SANITIZE_REGEX, "-");
+                        createModel(api, modelName, "Automatically Imported", schema, contentType);
+                    }
+                    responseModels.put(contentType, modelName);
+              }
+            });
+            if (!responseModels.isEmpty()){
+                input.setResponseModels(responseModels);
+            }
+        }
+
+        return input;
     }
 
     private boolean isApiKeyRequired(Action action) {
