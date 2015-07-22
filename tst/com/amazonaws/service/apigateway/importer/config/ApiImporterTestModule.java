@@ -15,7 +15,9 @@
 package com.amazonaws.service.apigateway.importer.config;
 
 import com.amazonaws.service.apigateway.importer.ApiFileImporter;
+import com.amazonaws.service.apigateway.importer.RamlApiImporter;
 import com.amazonaws.service.apigateway.importer.SwaggerApiImporter;
+import com.amazonaws.service.apigateway.importer.impl.raml.sdk.ApiGatewaySdkRamlApiImporter;
 import com.amazonaws.service.apigateway.importer.impl.swagger.ApiGatewaySwaggerFileImporter;
 import com.amazonaws.service.apigateway.importer.impl.swagger.sdk.ApiGatewaySdkSwaggerApiImporter;
 import com.amazonaws.services.apigateway.model.ApiGateway;
@@ -28,6 +30,7 @@ public class ApiImporterTestModule extends AbstractModule {
     protected void configure() {
         bind(ApiFileImporter.class).to(ApiGatewaySwaggerFileImporter.class);
         bind(SwaggerApiImporter.class).to(ApiGatewaySdkSwaggerApiImporter.class);
+        bind(RamlApiImporter.class).to(ApiGatewaySdkRamlApiImporter.class);
         bind(ApiGateway.class).toInstance(Mockito.mock(ApiGateway.class));
     }
 

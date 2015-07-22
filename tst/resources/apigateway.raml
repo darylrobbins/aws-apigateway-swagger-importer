@@ -1,0 +1,78 @@
+#%RAML 0.8
+title: "API Gateway Test API"
+version: "1.0.0"
+baseUri: "https://api.uber.com/v1"
+schemas:
+    -
+        "Product": '{"type":"object","title":"Product","properties":{"product_id":{"type":"string","required":false,"title":"product_id"},"description":{"type":"string","required":false,"title":"description"},"display_name":{"type":"string","required":false,"title":"display_name"},"capacity":{"type":"string","required":false,"title":"capacity"},"image":{"type":"string","required":false,"title":"image"}}}'
+        "PriceEstimate": '{"type":"object","title":"PriceEstimate","properties":{"product_id":{"type":"string","required":false,"title":"product_id"},"currency_code":{"type":"string","required":false,"title":"currency_code"},"display_name":{"type":"string","required":false,"title":"display_name"},"estimate":{"type":"string","required":false,"title":"estimate"},"low_estimate":{"type":"number","required":false,"title":"low_estimate"},"high_estimate":{"type":"number","required":false,"title":"high_estimate"},"surge_multiplier":{"type":"number","required":false,"title":"surge_multiplier"}}}'
+        "Profile": '{"type":"object","title":"Profile","properties":{"first_name":{"type":"string","required":false,"title":"first_name"},"last_name":{"type":"string","required":false,"title":"last_name"},"email":{"type":"string","required":false,"title":"email"},"picture":{"type":"string","required":false,"title":"picture"},"promo_code":{"type":"string","required":false,"title":"promo_code"}}}'
+        "Activity": '{"type":"object","title":"Activity","properties":{"uuid":{"type":"string","required":false,"title":"uuid"}}}'
+        "Activities": '{"type":"object","title":"Activities","properties":{"offset":{"type":"integer","required":false,"title":"offset"},"limit":{"type":"integer","required":false,"title":"limit"},"count":{"type":"integer","required":false,"title":"count"},"history":{"type":"array","required":false,"title":"history","items":{"type":"object","$ref":"#/schemas/Activity"},"uniqueItems":false}}}'
+        "Error": '{"type":"object","title":"Error","properties":{"code":{"type":"integer","required":false,"title":"code"},"message":{"type":"string","required":false,"title":"message"},"fields":{"type":"string","required":false,"title":"fields"}}}'
+"/products":
+    displayName: "Products"
+    get:
+        description: |
+            The Products endpoint returns information about the *Uber* products
+            offered at a given location. The response includes the display name
+            and other details about each product, and lists the products in the
+            proper display order.
+        queryParameters:
+            "latitude":
+                displayName: "latitude"
+                description: "Latitude component of location."
+                type: string
+                required: true
+                repeat: true
+            "longitude":
+                displayName: "longitude"
+                description: "Longitude component of location."
+                type: string
+                required: true
+                repeat: true
+        responses:
+            "200":
+                description: "An array of products"
+                body:
+                    "application/json":
+                        schema: "Product"
+                        example: '[{"display_name":"sample display_name","product_id":"sample product_id","description":"sample description","image":"sample image","capacity":"sample capacity"}]'
+            "400":
+                description: "Bad request"
+                body:
+                    "application/json":
+                        example: '{"message":"sample message","code":1,"fields":"sample fields"}'
+"/products/child":
+    displayName: "ProductsChild"
+    post:
+        description: |
+            The Products endpoint returns information about the *Uber* products
+            offered at a given location. The response includes the display name
+            and other details about each product, and lists the products in the
+            proper display order.
+        queryParameters:
+            "latitude":
+                displayName: "latitude"
+                description: "Latitude component of location."
+                type: string
+                required: true
+                repeat: true
+            "longitude":
+                displayName: "longitude"
+                description: "Longitude component of location."
+                type: string
+                required: true
+                repeat: true
+        responses:
+            "200":
+                description: "An array of products"
+                body:
+                    "application/json":
+                        schema: "Product"
+                        example: '[{"display_name":"sample display_name","product_id":"sample product_id","description":"sample description","image":"sample image","capacity":"sample capacity"}]'
+            "400":
+                description: "Bad request"
+                body:
+                    "application/json":
+                        example: '{"message":"sample message","code":1,"fields":"sample fields"}'
