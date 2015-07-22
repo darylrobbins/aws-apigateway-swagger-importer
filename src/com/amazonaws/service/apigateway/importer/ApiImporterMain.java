@@ -16,7 +16,8 @@ package com.amazonaws.service.apigateway.importer;
 
 import com.amazonaws.service.apigateway.importer.config.ApiImporterModule;
 import com.amazonaws.service.apigateway.importer.config.AwsConfig;
-import com.amazonaws.service.apigateway.importer.impl.ApiGatewaySwaggerFileImporter;
+import com.amazonaws.service.apigateway.importer.impl.raml.ApiGatewayRamlFileImporter;
+import com.amazonaws.service.apigateway.importer.impl.swagger.ApiGatewaySwaggerFileImporter;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import com.google.inject.Guice;
@@ -50,6 +51,9 @@ public class ApiImporterMain {
 
     @Parameter(names = {"--test", "-t"}, description = "Delete the API after import (create only)")
     private boolean cleanup = false;
+
+    @Parameter(names = {"--format", "-f"}, description = "Input format")
+    private String format = "swagger";
 
     @Parameter(names = "--help", help = true)
     private boolean help;
@@ -90,7 +94,12 @@ public class ApiImporterMain {
         try {
             Injector injector = Guice.createInjector(new ApiImporterModule(config));
 
-            ApiGatewaySwaggerFileImporter importer = injector.getInstance(ApiGatewaySwaggerFileImporter.class);
+            final ApiFileImporter importer;
+            if ("raml".equals(format)) {
+                importer = injector.getInstance(ApiGatewayRamlFileImporter.class);
+            } else {
+                importer = injector.getInstance(ApiGatewaySwaggerFileImporter.class);
+            }
 
             String swaggerFile = files.get(0);
 
@@ -115,6 +124,11 @@ public class ApiImporterMain {
 
     private boolean validateArgs() {
         if ((apiId == null && !createNew) || files == null || files.isEmpty()) {
+            return false;
+        }
+
+        if (format != null && !("swagger".equals(format) || "raml".equals(format))) {
+            LOG.error("Format can be: swagger or raml");
             return false;
         }
 

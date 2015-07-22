@@ -16,8 +16,8 @@ package com.amazonaws.service.apigateway.importer.config;
 
 import com.amazonaws.service.apigateway.importer.ApiFileImporter;
 import com.amazonaws.service.apigateway.importer.SwaggerApiImporter;
-import com.amazonaws.service.apigateway.importer.impl.ApiGatewaySwaggerFileImporter;
-import com.amazonaws.service.apigateway.importer.impl.sdk.ApiGatewaySdkSwaggerApiImporter;
+import com.amazonaws.service.apigateway.importer.impl.swagger.ApiGatewaySwaggerFileImporter;
+import com.amazonaws.service.apigateway.importer.impl.swagger.sdk.ApiGatewaySdkSwaggerApiImporter;
 import com.amazonaws.services.apigateway.model.ApiGateway;
 import com.google.inject.AbstractModule;
 import org.mockito.Mockito;

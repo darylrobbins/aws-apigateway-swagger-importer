@@ -12,7 +12,7 @@
  * express or implied. See the License for the specific language governing
  * permissions and limitations under the License.
  */
-package com.amazonaws.service.apigateway.importer.impl.sdk;
+package com.amazonaws.service.apigateway.importer.impl.swagger.sdk;
 
 import com.amazonaws.service.apigateway.importer.SwaggerApiImporter;
 import com.amazonaws.service.apigateway.importer.impl.SchemaTransformer;
