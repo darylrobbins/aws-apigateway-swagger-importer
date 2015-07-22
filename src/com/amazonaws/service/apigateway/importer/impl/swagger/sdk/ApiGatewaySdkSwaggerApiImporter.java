@@ -15,25 +15,9 @@
 package com.amazonaws.service.apigateway.importer.impl.swagger.sdk;
 
 import com.amazonaws.service.apigateway.importer.SwaggerApiImporter;
+import com.amazonaws.service.apigateway.importer.impl.GenericApiImporter;
 import com.amazonaws.service.apigateway.importer.impl.SchemaTransformer;
-import com.amazonaws.services.apigateway.model.ApiGateway;
-import com.amazonaws.services.apigateway.model.CreateDeploymentInput;
-import com.amazonaws.services.apigateway.model.CreateModelInput;
-import com.amazonaws.services.apigateway.model.CreateResourceInput;
-import com.amazonaws.services.apigateway.model.CreateRestApiInput;
-import com.amazonaws.services.apigateway.model.Integration;
-import com.amazonaws.services.apigateway.model.IntegrationType;
-import com.amazonaws.services.apigateway.model.Method;
-import com.amazonaws.services.apigateway.model.MethodResponse;
-import com.amazonaws.services.apigateway.model.Model;
-import com.amazonaws.services.apigateway.model.PatchDocument;
-import com.amazonaws.services.apigateway.model.PutIntegrationInput;
-import com.amazonaws.services.apigateway.model.PutIntegrationResponseInput;
-import com.amazonaws.services.apigateway.model.PutMethodInput;
-import com.amazonaws.services.apigateway.model.PutMethodResponseInput;
-import com.amazonaws.services.apigateway.model.Resource;
-import com.amazonaws.services.apigateway.model.RestApi;
-import com.google.inject.Inject;
+import com.amazonaws.services.apigateway.model.*;
 import com.wordnik.swagger.models.Operation;
 import com.wordnik.swagger.models.Path;
 import com.wordnik.swagger.models.RefModel;
@@ -66,16 +50,17 @@ import static com.amazonaws.service.apigateway.importer.util.PatchUtils.createRe
 import static java.lang.String.format;
 import static java.util.Collections.emptyList;
 
-public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
+public class ApiGatewaySdkSwaggerApiImporter extends GenericApiImporter implements SwaggerApiImporter {
 
     private static final Log LOG = LogFactory.getLog(ApiGatewaySdkSwaggerApiImporter.class);
-    private static final String DEFAULT_PRODUCES_CONTENT_TYPE = "application/json";
-    private static final String EXTENSION_AUTH = "x-amazon-apigateway-auth";
-    private static final String EXTENSION_INTEGRATION = "x-amazon-apigateway-integration";
 
-    @Inject
-    private ApiGateway apiGateway;
     private Swagger swagger;
+
+
+    @Override
+    protected Log getLog(){
+        return LOG;
+    }
 
     @Override
     public String createApi(Swagger swagger, String name) {
@@ -89,7 +74,7 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
             createModels(api, swagger.getDefinitions(), swagger.getProduces());
             createResources(api, rootResource, swagger.getBasePath(), swagger.getProduces(), swagger.getPaths(), true);
         } catch (Throwable t) {
-            LOG.error("Error creating API, rolling back", t);
+            getLog().error("Error creating API, rolling back", t);
             rollback(api);
             throw t;
         }
@@ -108,157 +93,13 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
         updateMethods(api, swagger.getBasePath(), swagger.getPaths(), swagger.getProduces());
     }
 
-    @Override
-    public void deploy(String apiId, String deploymentStage) {
-        LOG.info(String.format("Creating deployment for API %s and stage %s", apiId, deploymentStage));
-
-        CreateDeploymentInput input = new CreateDeploymentInput();
-        input.setStageName(deploymentStage);
-
-        apiGateway.getRestApiById(apiId).createDeployment(input);
-    }
-
-    @Override
-    public void deleteApi(String apiId) {
-        deleteApi(apiGateway.getRestApiById(apiId));
-    }
-
     private void rollback(RestApi api) {
         deleteApi(api);
-    }
-
-    private void deleteApi(RestApi api) {
-        LOG.info("Deleting API " + api.getId());
-        api.deleteRestApi();
-    }
-
-    private RestApi createApi(String name, String description) {
-        LOG.info("Creating API with name " + name);
-
-        CreateRestApiInput input = new CreateRestApiInput();
-        input.setName(name);
-        input.setDescription(description);
-
-        return apiGateway.createRestApi(input);
-    }
-
-    private RestApi getApi(String id) {
-        return apiGateway.getRestApiById(id);
-    }
-
-    private Resource createResource(RestApi api, String parentResourceId, String pathPart) {
-        CreateResourceInput input = new CreateResourceInput();
-        input.setPathPart(pathPart);
-
-        Resource resource = api.getResourceById(parentResourceId);
-
-        return resource.createResource(input);
-    }
-
-    private void createModel(RestApi api, String modelName, String description, String schema, String modelContentType) {
-
-        CreateModelInput input = new CreateModelInput();
-
-        input.setName(modelName);
-        input.setDescription(description);
-        input.setContentType(modelContentType);
-        input.setSchema(schema);
-
-        api.createModel(input);
-    }
-
-    private void deleteDefaultModels(RestApi api) {
-        api.getModels().getItem().stream().forEach(model -> {
-            LOG.info("Removing default model " + model.getName());
-            try {
-                model.deleteModel();
-            } catch (Throwable ignored) {} // todo: temporary catch until API fix
-        });
-    }
-
-    private Optional<Resource> getResource(RestApi api, String parentResourceId, String pathPart) {
-        for (Resource r : api.getResources().getItem()) {
-            if (pathEquals(pathPart, r.getPathPart()) && r.getParentId().equals(parentResourceId)) {
-                return Optional.of(r);
-            }
-        }
-
-        return Optional.empty();
-    }
-
-    private boolean pathEquals(String p1, String p2) {
-        return (StringUtils.isBlank(p1) && StringUtils.isBlank(p2)) || p1.equals(p2);
-    }
-
-    private Optional<Resource> getResource(RestApi api, String fullPath) {
-        for (Resource r : api.getResources().getItem()) {
-            if (r.getPath().equals(fullPath)) {
-                return Optional.of(r);
-            }
-        }
-
-        return Optional.empty();
-    }
-
-    private Optional<Resource> getRootResource(RestApi api) {
-        for (Resource r : api.getResources().getItem()) {
-            if ("/".equals(r.getPath())) {
-                return Optional.of(r);
-            }
-        }
-        return Optional.empty();
-    }
-
-    private Optional<Model> getModel(RestApi api, String modelName) {
-        try {
-            return Optional.of(api.getModelByName(modelName));
-        } catch (Exception ignored) {
-            return Optional.empty();
-        }
-    }
-
-    private void updateModel(RestApi api, String modelName, String schema) {
-        api.getModelByName(modelName).updateModel(createPatchDocument(createReplaceOperation("/schema", schema)));
-    }
-
-    private boolean methodExists(Resource resource, String httpMethod) {
-        return resource.getResourceMethods().get(httpMethod.toUpperCase()) != null;
-    }
-
-    private void deleteResource(Resource resource) {
-        if (resource._isLinkAvailable("resource:delete")) {
-            resource.deleteResource();
-        }
-        // can't delete root resource
     }
 
     private String getApiName(Swagger swagger, String fileName) {
         String title = swagger.getInfo().getTitle();
         return StringUtils.isNotBlank(title) ? title : fileName;
-    }
-
-    private void createResources(RestApi api, Resource rootResource, String basePath, List<String> apiProduces, Map<String, Path> paths, boolean createMethods) {
-        //build path tree
-
-        for (Map.Entry<String, Path> entry : paths.entrySet()) {
-
-            // create the resource tree
-            Resource parentResource = rootResource;
-            String parentPart = null;
-
-            final String fullPath = buildResourcePath(basePath, entry.getKey());    // prepend the base path to all paths
-            final String[] parts = fullPath.split("/");
-
-            for (int i = 1; i < parts.length; i++) { // exclude root resource as this will be created when the api is created
-                parentResource = createResource(api, parentResource.getId(), parentPart, parts[i]);
-                parentPart = parts[i];
-            }
-
-            if (createMethods) {
-                // create methods on the leaf resource for each path
-                createMethods(api, parentResource, entry.getValue(), apiProduces);
-            }
-        }
     }
 
     private void createModels(RestApi api, Map<String, com.wordnik.swagger.models.Model> definitions, List<String> produces) {
@@ -275,199 +116,15 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
     }
 
     private void createModel(RestApi api, String modelName, com.wordnik.swagger.models.Model model, Map<String, com.wordnik.swagger.models.Model> definitions, String modelContentType) {
-        LOG.info(format("Creating model for api id %s with name %s", api.getId(), modelName));
+        getLog().info(format("Creating model for api id %s with name %s", api.getId(), modelName));
 
         createModel(api, modelName, model.getDescription(), generateSchema(model, modelName, definitions), modelContentType);
     }
 
     private void createModel(RestApi api, String modelName, Property model, String modelContentType) {
-        LOG.info(format("Creating model for api id %s with name %s", api.getId(), modelName));
+        getLog().info(format("Creating model for api id %s with name %s", api.getId(), modelName));
 
         createModel(api, modelName, model.getDescription(), generateSchema(model, modelName, swagger.getDefinitions()), modelContentType);
-    }
-
-    private void createMethods(final RestApi api, final Resource resource, Path path, List<String> apiProduces) {
-        final Map<String, Operation> ops = getOperations(path);
-
-        ops.entrySet().forEach(x -> {
-            createMethod(api, resource, x.getKey(), x.getValue(),
-                         getProducesContentType(apiProduces, x.getValue().getProduces()));
-            LOG.info(format("Creating method for api id %s and resource id %s with method %s", api.getId(), resource.getId(), x.getKey()));
-
-            sleep();
-        });
-    }
-
-    private void sleep() {
-        try {
-            Thread.sleep(500);  // todo: temporary hack to get around throttling limits - sdk should backoff and retry when throttled
-        } catch (InterruptedException ignored) {}
-    }
-
-    private Resource createResource(RestApi api, String parentResourceId, String parentPart, String part) {
-        final Optional<Resource> existingResource = getResource(api, parentResourceId, part);
-
-        // create resource if doesn't exist
-        if (!existingResource.isPresent()) {
-            LOG.info("Creating resource '" + part + "' with parent '" + parentPart + "'");
-            sleep();
-            return createResource(api, parentResourceId, part);
-        } else {
-            return existingResource.get();
-        }
-    }
-
-    private void addOp(Map<String, Operation> ops, String method, Operation operation) {
-        if (operation != null) {
-            ops.put(method, operation);
-        }
-    }
-
-    private void updateMethods(RestApi api, String basePath, Map<String, Path> paths, List<String> apiProduces) {
-        for (Map.Entry<String, Path> entry : paths.entrySet()) {
-            final String fullPath = buildResourcePath(basePath, entry.getKey());
-
-            final Path path = entry.getValue();
-
-            final Map<String, Operation> ops = getOperations(path);
-
-            for (Map.Entry<String, Operation> opEntry : ops.entrySet()) {
-                final String httpMethod = opEntry.getKey();
-                final Operation op = opEntry.getValue();
-
-                // resolve the resource based on path - the resource is guaranteed to exist by this point
-                final Resource resource = getResource(api, fullPath).get();
-
-                String modelContentType = getProducesContentType(apiProduces, op.getProduces());
-
-                if (methodExists(resource, httpMethod)) {
-                    updateMethod(api, resource, httpMethod, op, modelContentType);
-                } else {
-                    createMethod(api, resource, httpMethod, op, modelContentType);
-                }
-            }
-        }
-
-        cleanupMethods(api, basePath, paths);
-    }
-
-    public void createMethod(RestApi api, Resource resource, String httpMethod,
-                             Operation op, String modelContentType) {
-        PutMethodInput input = new PutMethodInput();
-
-        input.setAuthorizationType(getAuthorizationType(op));
-        input.setApiKeyRequired(isApiKeyRequired(op));
-
-        // set input model if present in body
-        op.getParameters().stream().filter(p -> p.getIn().equals("body")).forEach(p -> {
-            BodyParameter bodyParam = (BodyParameter) p;
-            Optional<String> inputModel = getInputModel(bodyParam);
-
-            // model already imported
-            if (inputModel.isPresent()) {
-                LOG.info("Found input model reference " + inputModel.get());
-                input.setRequestModels(new HashMap<>());
-                input.getRequestModels().put(modelContentType, inputModel.get());
-            } else {
-                // create new model from nested schema
-                String modelName = generateModelName(bodyParam);
-                LOG.info("Creating new model referenced from parameter: " + modelName);
-                createModel(api, modelName, bodyParam.getSchema(), swagger.getDefinitions(), modelContentType);
-            }
-        });
-
-        // create method
-        Method method = resource.putMethod(input, httpMethod.toUpperCase());
-
-        createMethodResponses(api, method, modelContentType, op.getResponses());
-        createMethodParameters(api, method, op.getParameters());
-        createIntegration(method, op.getVendorExtensions());
-    }
-
-    private void createIntegrationResponses(Integration integration, HashMap<String, HashMap> integ) {
-
-        // todo: avoid unchecked casts
-        HashMap<String, HashMap> responses = (HashMap<String, HashMap>) integ.get("responses");
-
-        responses.entrySet().forEach(e -> {
-            String pattern = e.getKey().equals("default") ? null : e.getKey();
-            HashMap response = e.getValue();
-
-            String status = (String) response.get("statusCode");
-
-            PutIntegrationResponseInput input = new PutIntegrationResponseInput()
-                    .withResponseParameters((Map<String, String>) response.get("responseParameters"))
-                    .withResponseTemplates((Map<String, String>) response.get("responseTemplates"))
-                    .withSelectionPattern(pattern);
-
-            integration.putIntegrationResponse(input, status);
-        });
-    }
-
-    private void createIntegration(Method method, Map<String, Object> vendorExtensions) {
-        if (!vendorExtensions.containsKey(EXTENSION_INTEGRATION)) {
-            return;
-        }
-
-        HashMap<String, HashMap> integ =
-                (HashMap<String, HashMap>) vendorExtensions.get(EXTENSION_INTEGRATION);
-
-        IntegrationType type = IntegrationType.valueOf(getStringValue(integ.get("type")).toUpperCase());
-
-        LOG.info("Creating integration with type " + type);
-
-        PutIntegrationInput input = new PutIntegrationInput()
-                .withType(type)
-                .withUri(getStringValue(integ.get("uri")))
-                .withCredentials(getStringValue(integ.get("credentials")))
-                .withHttpMethod((getStringValue(integ.get("httpMethod"))))
-                .withRequestParameters(integ.get("requestParameters"))
-                .withRequestTemplates(integ.get("requestTemplates"))
-                .withCacheNamespace(getStringValue(integ.get("cacheNamespace")))
-                .withCacheKeyParameters((List<String>) integ.get("cacheKeyParameters"));
-
-        Integration integration = method.putIntegration(input);
-
-        createIntegrationResponses(integration, integ);
-    }
-
-    private String getStringValue(Object in) {
-        return in == null ? null : String.valueOf(in);  // use null value instead of "null"
-    }
-
-    private String getAuthorizationType(Operation op) {
-        String authType = "NONE";
-        if (op.getVendorExtensions() != null) {
-            HashMap<String, String> authExtension = (HashMap<String, String>) op.getVendorExtensions().get(EXTENSION_AUTH);
-
-            if (authExtension != null) {
-                authType = authExtension.get("type").toUpperCase();
-            }
-        }
-        return authType;
-    }
-
-    private Boolean isApiKeyRequired(Operation op) {
-        Optional<Map.Entry<String, SecuritySchemeDefinition>> apiKeySecurityDefinition = Optional.empty();
-
-        if (swagger.getSecurityDefinitions() != null) {
-            apiKeySecurityDefinition = swagger.getSecurityDefinitions().entrySet()
-                    .stream().filter(p -> p.getValue().getType().equals("apiKey")).findFirst();
-        }
-
-        if (!apiKeySecurityDefinition.isPresent()) {
-            return false;
-        }
-
-        String securityDefinitionName = apiKeySecurityDefinition.get().getKey();
-
-        if (op.getSecurity() != null) {
-            return op.getSecurity().stream().anyMatch(s -> s.containsKey(securityDefinitionName));
-        }
-        if (swagger.getSecurityRequirement() != null) {
-            return swagger.getSecurityRequirement().stream().anyMatch(s -> s.getName().equals(securityDefinitionName));
-        }
-        return false;
     }
 
     private String generateSchema(Property model, String modelName, Map<String, com.wordnik.swagger.models.Model> definitions) {
@@ -482,7 +139,7 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
             // inline all references
             String schema = new SchemaTransformer().flatten(modelSchema, models);
 
-            LOG.info("Generated json-schema for model " + modelName + ": " + schema);
+            getLog().info("Generated json-schema for model " + modelName + ": " + schema);
 
             return schema;
         } catch (IOException e) {
@@ -510,7 +167,7 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
 
     private String generateModelName(String description) {
         if (StringUtils.isBlank(description)) {
-            LOG.warn("No description found for model, will generate a unique model name");
+            getLog().warn("No description found for model, will generate a unique model name");
             return "model" + UUID.randomUUID().toString().substring(0, 8);
         }
 
@@ -565,12 +222,12 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
     }
 
     private void updateModel(RestApi api, String modelName, com.wordnik.swagger.models.Model model) {
-        LOG.info(format("Updating model for api id %s and model name %s", api.getId(), modelName));
+        getLog().info(format("Updating model for api id %s and model name %s", api.getId(), modelName));
         updateModel(api, modelName, generateSchema(model, modelName, swagger.getDefinitions()));
     }
 
     private void updateMethod(RestApi api, Resource resource, String httpMethod, Operation op, String modelContentType) {
-        LOG.info(format("Updating method for api id %s and resource %s and method %s", api.getId(), resource.getId(), httpMethod));
+        getLog().info(format("Updating method for api id %s and resource %s and method %s", api.getId(), resource.getId(), httpMethod));
 
         PatchDocument pd = createPatchDocument(
                 createReplaceOperation("/authorizationType", getAuthorizationType(op)),
@@ -586,7 +243,7 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
 
     private void cleanupModels(RestApi api, Map<String, com.wordnik.swagger.models.Model> definitions) {
         api.getModels().getItem().stream().filter(model -> !definitions.containsKey(model.getName())).forEach(model -> {
-            LOG.info("Removing deleted model " + model.getName());
+            getLog().info("Removing deleted model " + model.getName());
             try {
                 model.deleteModel();
             }  catch (Throwable ignored) {} // todo: temporary catch until API fix
@@ -594,14 +251,14 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
     }
 
     private void cleanupMethods(RestApi api, String basePath, Map<String, Path> paths) {
-        LOG.info("Cleaning up removed methods");
+        getLog().info("Cleaning up removed methods");
 
         for (Resource r : api.getResources().getItem()) {
             for (Method m : r.getResourceMethods().values()) {
                 String httpMethod = m.getHttpMethod().toLowerCase();
 
                 if (!isMethodInSwagger(r.getPath(), httpMethod, basePath, paths)) {
-                    LOG.info(format("Removing deleted method %s for resource %s", httpMethod, r.getId()));
+                    getLog().info(format("Removing deleted method %s for resource %s", httpMethod, r.getId()));
 
                     m.deleteMethod();
                 }
@@ -624,7 +281,7 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
     }
 
     private void cleanupResources(RestApi api, String basePath, Map<String, Path> paths) {
-        LOG.info("Cleaning up removed resources");
+        getLog().info("Cleaning up removed resources");
 
         Set<String> resourceSet = buildResourceSet(paths, basePath);
 
@@ -632,7 +289,7 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
         // this prevents intermediate resources from being deleted, but may also prevent deletion when resources are "moved"
         api.getResources().getItem().stream().filter(resource -> !resourceSet.contains(resource.getPathPart()))
                 .forEach(resource -> {
-                    LOG.info("Removing deleted resource " + resource.getPath());
+                    getLog().info("Removing deleted resource " + resource.getPath());
                     deleteResource(resource);
                 });
     }
@@ -662,13 +319,13 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
         if (modelOpt.isPresent()) {
             input.setResponseModels(new HashMap<>());
             input.getResponseModels().put(modelContentType, modelOpt.get().getName());
-            LOG.info("Found reference to existing model " + modelOpt.get().getName());
+            getLog().info("Found reference to existing model " + modelOpt.get().getName());
         } else {
             // generate a model based on the schema if the model doesn't already exist
             if (response.getSchema() != null) {
                 String modelName = generateModelName(response);
 
-                LOG.info("Creating new model referenced from response: " + modelName);
+                getLog().info("Creating new model referenced from response: " + modelName);
 
                 createModel(api, modelName, response.getSchema(), modelContentType);
 
@@ -688,10 +345,10 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
         // add responses from swagger
         responses.entrySet().forEach(e -> {
             if (e.getKey().equals("default")) {
-                LOG.warn("Default response not supported, skipping");
+                getLog().warn("Default response not supported, skipping");
             } else {
-                LOG.info(format("Creating method response for api %s and method %s and status %s",
-                                api.getId(), method.getHttpMethod(), e.getKey()));
+                getLog().info(format("Creating method response for api %s and method %s and status %s",
+                        api.getId(), method.getHttpMethod(), e.getKey()));
 
                 method.putMethodResponse(getCreateResponseInput(api, modelContentType, e.getValue()), e.getKey());
             }
@@ -726,8 +383,8 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
                 if (getParameterLocation(p).isPresent()) {
                     String expression = createRequestParameterExpression(p);
 
-                    LOG.info(format("Creating method parameter for api %s and method %s with name %s",
-                                    api.getId(), method.getHttpMethod(), expression));
+                    getLog().info(format("Creating method parameter for api %s and method %s with name %s",
+                            api.getId(), method.getHttpMethod(), expression));
 
                     method.updateMethod(createPatchDocument(createAddOperation("/requestParameters/" + expression,
                                                                                getStringValue(p.getRequired()))));
@@ -750,7 +407,7 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
             case "header":
                 return Optional.of("header");
             default:
-                LOG.warn("Parameter type " + p.getIn() + " not supported, skipping");
+                getLog().warn("Parameter type " + p.getIn() + " not supported, skipping");
                 break;
         }
         return Optional.empty();
@@ -830,5 +487,143 @@ public class ApiGatewaySdkSwaggerApiImporter implements SwaggerApiImporter {
         }
 
         return DEFAULT_PRODUCES_CONTENT_TYPE;
+    }
+
+    private Boolean isApiKeyRequired(Operation op) {
+        Optional<Map.Entry<String, SecuritySchemeDefinition>> apiKeySecurityDefinition = Optional.empty();
+
+        if (swagger.getSecurityDefinitions() != null) {
+            apiKeySecurityDefinition = swagger.getSecurityDefinitions().entrySet()
+                    .stream().filter(p -> p.getValue().getType().equals("apiKey")).findFirst();
+        }
+
+        if (!apiKeySecurityDefinition.isPresent()) {
+            return false;
+        }
+
+        String securityDefinitionName = apiKeySecurityDefinition.get().getKey();
+
+        if (op.getSecurity() != null) {
+            return op.getSecurity().stream().anyMatch(s -> s.containsKey(securityDefinitionName));
+        }
+        if (swagger.getSecurityRequirement() != null) {
+            return swagger.getSecurityRequirement().stream().anyMatch(s -> s.getName().equals(securityDefinitionName));
+        }
+        return false;
+    }
+
+    private void createResources(RestApi api, Resource rootResource, String basePath, List<String> apiProduces, Map<String, Path> paths, boolean createMethods) {
+        //build path tree
+
+        for (Map.Entry<String, Path> entry : paths.entrySet()) {
+
+            // create the resource tree
+            Resource parentResource = rootResource;
+            String parentPart = null;
+
+            final String fullPath = buildResourcePath(basePath, entry.getKey());    // prepend the base path to all paths
+            final String[] parts = fullPath.split("/");
+
+            for (int i = 1; i < parts.length; i++) { // exclude root resource as this will be created when the api is created
+                parentResource = createResource(api, parentResource.getId(), parentPart, parts[i]);
+                parentPart = parts[i];
+            }
+
+            if (createMethods) {
+                // create methods on the leaf resource for each path
+                createMethods(api, parentResource, entry.getValue(), apiProduces);
+            }
+        }
+    }
+
+    private void createMethods(final RestApi api, final Resource resource, Path path, List<String> apiProduces) {
+        final Map<String, Operation> ops = getOperations(path);
+
+        ops.entrySet().forEach(x -> {
+            createMethod(api, resource, x.getKey(), x.getValue(),
+                         getProducesContentType(apiProduces, x.getValue().getProduces()));
+            getLog().info(format("Creating method for api id %s and resource id %s with method %s", api.getId(), resource.getId(), x.getKey()));
+
+            sleep();
+        });
+    }
+
+    private void addOp(Map<String, Operation> ops, String method, Operation operation) {
+        if (operation != null) {
+            ops.put(method, operation);
+        }
+    }
+
+    private void updateMethods(RestApi api, String basePath, Map<String, Path> paths, List<String> apiProduces) {
+        for (Map.Entry<String, Path> entry : paths.entrySet()) {
+            final String fullPath = buildResourcePath(basePath, entry.getKey());
+
+            final Path path = entry.getValue();
+
+            final Map<String, Operation> ops = getOperations(path);
+
+            for (Map.Entry<String, Operation> opEntry : ops.entrySet()) {
+                final String httpMethod = opEntry.getKey();
+                final Operation op = opEntry.getValue();
+
+                // resolve the resource based on path - the resource is guaranteed to exist by this point
+                final Resource resource = getResource(api, fullPath).get();
+
+                String modelContentType = getProducesContentType(apiProduces, op.getProduces());
+
+                if (methodExists(resource, httpMethod)) {
+                    updateMethod(api, resource, httpMethod, op, modelContentType);
+                } else {
+                    createMethod(api, resource, httpMethod, op, modelContentType);
+                }
+            }
+        }
+
+        cleanupMethods(api, basePath, paths);
+    }
+
+    public void createMethod(RestApi api, Resource resource, String httpMethod,
+                             Operation op, String modelContentType) {
+        PutMethodInput input = new PutMethodInput();
+
+        input.setAuthorizationType(getAuthorizationType(op));
+        input.setApiKeyRequired(isApiKeyRequired(op));
+
+        // set input model if present in body
+        op.getParameters().stream().filter(p -> p.getIn().equals("body")).forEach(p -> {
+            BodyParameter bodyParam = (BodyParameter) p;
+            Optional<String> inputModel = getInputModel(bodyParam);
+
+            // model already imported
+            if (inputModel.isPresent()) {
+                getLog().info("Found input model reference " + inputModel.get());
+                input.setRequestModels(new HashMap<>());
+                input.getRequestModels().put(modelContentType, inputModel.get());
+            } else {
+                // create new model from nested schema
+                String modelName = generateModelName(bodyParam);
+                getLog().info("Creating new model referenced from parameter: " + modelName);
+                createModel(api, modelName, bodyParam.getSchema(), swagger.getDefinitions(), modelContentType);
+            }
+        });
+
+        // create method
+        Method method = resource.putMethod(input, httpMethod.toUpperCase());
+
+        createMethodResponses(api, method, modelContentType, op.getResponses());
+        createMethodParameters(api, method, op.getParameters());
+        createIntegration(method, op.getVendorExtensions());
+    }
+
+    private String getAuthorizationType(Operation op) {
+        String authType = "NONE";
+        if (op.getVendorExtensions() != null) {
+            HashMap<String, String> authExtension = (HashMap<String, String>) op.getVendorExtensions().get(EXTENSION_AUTH);
+
+            if (authExtension != null) {
+                authType = authExtension.get("type").toUpperCase();
+            }
+        }
+        return authType;
     }
 }
