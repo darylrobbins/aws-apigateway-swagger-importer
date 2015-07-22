@@ -18,6 +18,7 @@ import com.amazonaws.service.apigateway.importer.SwaggerApiImporter;
 import com.amazonaws.service.apigateway.importer.impl.GenericApiImporter;
 import com.amazonaws.service.apigateway.importer.impl.SchemaTransformer;
 import com.amazonaws.services.apigateway.model.*;
+import com.google.inject.Inject;
 import com.wordnik.swagger.models.Operation;
 import com.wordnik.swagger.models.Path;
 import com.wordnik.swagger.models.RefModel;
@@ -54,6 +55,7 @@ public class ApiGatewaySdkSwaggerApiImporter extends GenericApiImporter implemen
 
     private static final Log LOG = LogFactory.getLog(ApiGatewaySdkSwaggerApiImporter.class);
 
+    @Inject
     private Swagger swagger;
 
 
@@ -91,10 +93,6 @@ public class ApiGatewaySdkSwaggerApiImporter extends GenericApiImporter implemen
         updateModels(api, swagger.getDefinitions(), swagger.getProduces());
         updateResources(api, rootResource.get(), swagger.getBasePath(), swagger.getPaths(), swagger.getProduces());
         updateMethods(api, swagger.getBasePath(), swagger.getPaths(), swagger.getProduces());
-    }
-
-    private void rollback(RestApi api) {
-        deleteApi(api);
     }
 
     private String getApiName(Swagger swagger, String fileName) {
@@ -431,62 +429,6 @@ public class ApiGatewaySdkSwaggerApiImporter extends GenericApiImporter implemen
         // delete all existing responses
         responseMap.values().forEach(MethodResponse::deleteMethodResponse);
         createMethodResponses(api, method, modelContentType, responses);
-    }
-
-    /**
-     * Build the full resource path, including base path, add any missing leading '/', remove any trailing '/',
-     * and remove any double '/'
-     * @param basePath the base path
-     * @param resourcePath the resource path
-     * @return the full path
-     */
-    String buildResourcePath(String basePath, String resourcePath) {
-        if (basePath == null) {
-            basePath = "";
-        }
-        String base = trimSlashes(basePath);
-        if (!base.equals("")) {
-            base = "/" + base;
-        }
-        String result = StringUtils.removeEnd(base + "/" + trimSlashes(resourcePath), "/");
-        if (result.equals("")) {
-            result = "/";
-        }
-        return result;
-    }
-
-    private String trimSlashes(String path) {
-        return StringUtils.removeEnd(StringUtils.removeStart(path, "/"), "/");
-    }
-
-    /*
-     * Get the content-type to use for models and responses based on the method "produces" or the api "produces" content-types
-     *
-     * First look in the method produces and favor application/json, otherwise return the first method produces type
-     * If no method produces, fall back to api produces and favor application/json, otherwise return the first api produces type
-     * If no produces are defined on the method or api, default to application/json
-     */
-    // todo: check this logic for apis/methods producing multiple content-types
-    // note: assumption - models in an api will always use one of the api "produces" content types, favoring application/json. models created from operation responses may use the operation "produces" content type
-    private String getProducesContentType(List<String> apiProduces, List<String> methodProduces) {
-
-        if (methodProduces != null && !methodProduces.isEmpty()) {
-            if (methodProduces.stream().anyMatch(t -> t.equalsIgnoreCase(DEFAULT_PRODUCES_CONTENT_TYPE))) {
-                return DEFAULT_PRODUCES_CONTENT_TYPE;
-            }
-
-            return methodProduces.get(0);
-        }
-
-        if (apiProduces != null && !apiProduces.isEmpty()) {
-            if (apiProduces.stream().anyMatch(t -> t.equalsIgnoreCase(DEFAULT_PRODUCES_CONTENT_TYPE))) {
-                return DEFAULT_PRODUCES_CONTENT_TYPE;
-            }
-
-            return apiProduces.get(0);
-        }
-
-        return DEFAULT_PRODUCES_CONTENT_TYPE;
     }
 
     private Boolean isApiKeyRequired(Operation op) {
