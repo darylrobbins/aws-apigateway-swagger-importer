@@ -87,11 +87,12 @@ public class ApiGatewayRamlApiImporterTest {
         Models mockModels = mock(Models.class);
         when(mockModels.getItem()).thenReturn(Arrays.asList(mockModel));
 
+
         mockRestApi = mock(RestApi.class);
         when(mockRestApi.getResources()).thenReturn(mockResources);
         when(mockRestApi.getModels()).thenReturn(mockModels);
         when(mockRestApi.getResourceById(any())).thenReturn(mockResource);
-
+        when(mockRestApi.getModelByName(any())).thenReturn(mockModel);
         when(client.getRestApis()).thenReturn(mockRestApis);
         when(client.createRestApi(any())).thenReturn(mockRestApi);
     }
@@ -118,8 +119,10 @@ public class ApiGatewayRamlApiImporterTest {
         importer.importApi(getResourcePath("/apigateway.raml"));
 
         verify(mockChildResource, times(1)).putMethod(
-                argThat(new LambdaMatcher<>(i -> i.getAuthorizationType().equals("AWS_IAM"))),
-                argThat(new LambdaMatcher<>(i -> i.equals("GET"))));
+                argThat(new LambdaMatcher<>(i -> i.getAuthorizationType().equals("NONE"))),
+                argThat(new LambdaMatcher<>(i -> i.equals("GET")))
+
+        );
         verify(mockChildResource, times(1)).putMethod(
                 argThat(new LambdaMatcher<>(i -> i.getAuthorizationType().equals("NONE"))),
                 argThat(new LambdaMatcher<>(i -> i.equals("POST"))));
@@ -135,7 +138,6 @@ public class ApiGatewayRamlApiImporterTest {
         verify(mockRestApi, times(1)).createModel(argThat(new LambdaMatcher<>(i -> i.getName().equals("Activity"))));
         verify(mockRestApi, times(1)).createModel(argThat(new LambdaMatcher<>(i -> i.getName().equals("Activities"))));
         verify(mockRestApi, times(1)).createModel(argThat(new LambdaMatcher<>(i -> i.getName().equals("Error"))));
-        verify(mockRestApi, atLeastOnce()).createModel(argThat(new LambdaMatcher<>(i -> i.getName().equals("Anarrayofproducts"))));
     }
 
     //    todo: add more tests

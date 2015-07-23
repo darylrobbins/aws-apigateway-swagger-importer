@@ -10,23 +10,36 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.raml.model.*;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
+
+import static com.amazonaws.service.apigateway.importer.util.PatchUtils.createAddOperation;
+
 
 import static java.lang.String.format;
 
 /**
  * Created by daryl on 15-07-21.
  */
-public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements RamlApiImporter  {
+public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements RamlApiImporter {
 
     private static final Log LOG = LogFactory.getLog(ApiGatewaySdkRamlApiImporter.class);
     private static final String NAME_SANITIZE_REGEX = "[^A-Za-z0-9-]";
+    private static final String DEFAULT_RESPONSE_STATUS = "500";
+    private static final String DEFAULT_RESPONSE_MODEL = "Empty";
+
     @Inject
     private Raml raml;
 
+    public String getEndpointBaseURI() {
+        return endpointBaseURI;
+    }
+
+    public void setEndpointBaseURI(String endpointBaseURI) {
+        this.endpointBaseURI = endpointBaseURI;
+    }
+
+
+    private String endpointBaseURI;
 
     @Override
     public String createApi(Raml raml, String name) {
@@ -36,7 +49,6 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
 
         try {
             final Resource rootResource = getRootResource(api).get();
-            deleteDefaultModels(api);
             createModels(api, raml.getConsolidatedSchemas());
             createResources(api, rootResource, raml.getBasePath(), raml.getResources(), true);
         } catch (Throwable t) {
@@ -130,27 +142,111 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
         Method method = resource.putMethod(input, httpMethod.toString());
 
         createMethodResponses(api, method, action.getResponses());
-//        createMethodParameters(api, method, op.getParameters());
-//        createIntegration(method, op.getVendorExtensions());
+        createMethodParameters(api, method, action);
+        createIntegration(method, action);
+    }
+
+    private void createIntegration(Method method, Action action) {
+        //TODO: Create an integration Map json or YAML file
+        Map<String, String> requestParameters = new HashMap<>();
+
+        action.getQueryParameters().entrySet().forEach(entry -> {
+            String name = entry.getKey();
+            String integrationExpression = "integration.request.querystring." + name;
+            requestParameters.put(integrationExpression, getMethodRequestQuerystring(name));
+        });
+
+        action.getResource().getUriParameters().entrySet().forEach(entry -> {
+            String name = entry.getKey();
+            String integrationExpression = "integration.request.path." + name;
+            requestParameters.put(integrationExpression, getMethodRequestPath(name));
+        });
+
+        PutIntegrationInput input = new PutIntegrationInput()
+                .withType(IntegrationType.HTTP)
+                .withUri(getEndpointBaseURI() + action.getResource().getRelativeUri())
+                .withHttpMethod(action.getType().name())
+                .withRequestParameters(requestParameters);
+        Integration integration = method.putIntegration(input);
+        createIntegrationResponse(integration, action);
+    }
+
+    private void createIntegrationResponse(Integration integration, Action action) {
+        Map<String, Response> responses = action.getResponses();
+        if (!responses.containsKey(DEFAULT_RESPONSE_STATUS))
+            addDefaultResponse(responses);
+        responses.entrySet().forEach( entry -> {
+            String status = entry.getKey();
+            String pattern = status ==  DEFAULT_RESPONSE_STATUS ? null : status;
+            Map<String, String> responseParameters = new HashMap<>();
+            entry.getValue().getHeaders().entrySet().forEach( headerEntry -> {
+                String name = headerEntry.getKey();
+                responseParameters.put("integration.response.headers." + name, getMethodResponseHeader(name));
+            });
+            PutIntegrationResponseInput input = new PutIntegrationResponseInput()
+                    .withResponseParameters(responseParameters)
+                    .withSelectionPattern(pattern);
+            integration.putIntegrationResponse(input, status);
+        });
+    }
+
+    private void createMethodParameters(RestApi api, Method method, Action action) {
+        List<PatchOperation> operations = new ArrayList<>();
+
+        action.getQueryParameters().entrySet().forEach(entry -> {
+            String name = entry.getKey();
+            String expression = getMethodRequestQuerystring(name);
+            operations.add(createAddOperation(expression, String.valueOf(entry.getValue().isRequired())));
+        });
+
+        action.getResource().getUriParameters().entrySet().forEach(entry -> {
+            String name = entry.getKey();
+            String expression = getMethodRequestPath(name);
+            operations.add(createAddOperation(expression, String.valueOf(entry.getValue().isRequired())));
+        });
+        if (!operations.isEmpty()) {
+            PatchDocument doc = new PatchDocument().withPatchOperations(operations);
+            method.updateMethod(doc);
+        }
+    }
+
+    private String getMethodRequestPath(String name) {
+        return "method.request.path." + name;
+    }
+
+    private String getMethodRequestQuerystring(String name) {
+        return "method.request.querystring." + name;
     }
 
     private void createMethodResponses(RestApi api, Method method, Map<String, Response> responses) {
-        if (responses != null) {
-            responses.entrySet().forEach(entry -> {
-                String status = entry.getKey();
-                if (status.equals("default")) {
-                    getLog().warn("Default response not supported, skipping");
-                } else {
-                    getLog().info(format("Creating method response for api %s and method %s and status %s",
-                            api.getId(),
-                            method.getHttpMethod(),
-                            status));
-                    final PutMethodResponseInput input = createResponseInput(api, status, entry.getValue());
-                    method.putMethodResponse(input, status);
-                }
-
-            });
+        if (responses == null) {
+            responses = new HashMap<>();
         }
+        //Add default response if it doesn't exist.
+        if (!responses.containsKey(DEFAULT_RESPONSE_STATUS)) {
+            addDefaultResponse(responses);
+        }
+
+        responses.entrySet().forEach(entry -> {
+            String status = entry.getKey();
+            getLog().info(format("Creating method response for api %s and method %s and status %s",
+                    api.getId(),
+                    method.getHttpMethod(),
+                    status));
+            final PutMethodResponseInput input = createResponseInput(api, status, entry.getValue());
+            method.putMethodResponse(input, status);
+
+        });
+    }
+
+    private void addDefaultResponse(Map<String, Response> responses) {
+        Response response = new Response();
+        MimeType mimeType = new MimeType();
+        mimeType.setSchema(DEFAULT_RESPONSE_MODEL);
+        Map<String, MimeType> body = new HashMap<>();
+        body.put("application/json", mimeType);
+        response.setBody(body);
+        responses.put(DEFAULT_RESPONSE_STATUS, response);
     }
 
     private PutMethodResponseInput createResponseInput(RestApi api, String status, Response response) {
@@ -159,15 +255,16 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
         //set response headers
         if (response.getHeaders() != null) {
             HashMap<String, Boolean> responseParameters = new HashMap<>();
-            response.getHeaders().entrySet().forEach( entry ->{
-                responseParameters.put("method.response.header." + entry.getKey(), entry.getValue().isRequired());
+            response.getHeaders().entrySet().forEach(entry -> {
+                String name = entry.getKey();
+                responseParameters.put(getMethodResponseHeader(name), entry.getValue().isRequired());
             });
             input.setResponseParameters(responseParameters);
         }
 
-        if (response.hasBody()){
+        if (response.hasBody()) {
             Map<String, String> responseModels = new HashMap<>();
-            response.getBody().entrySet().forEach( entry -> {
+            response.getBody().entrySet().forEach(entry -> {
                 String schema = entry.getValue().getSchema();
                 String contentType = entry.getKey();
                 if (schema != null) {
@@ -175,21 +272,24 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
                     Optional<Model> modelOpt = getModel(api, schema);
 
                     if (modelOpt.isPresent()) {
-                        modelName = modelOpt.get().getName();
-
+                        modelName = schema;
                     } else {
                         modelName = (status + "-" + contentType).replaceAll(NAME_SANITIZE_REGEX, "-");
                         createModel(api, modelName, "Automatically Imported", schema, contentType);
                     }
                     responseModels.put(contentType, modelName);
-              }
+                }
             });
-            if (!responseModels.isEmpty()){
+            if (!responseModels.isEmpty()) {
                 input.setResponseModels(responseModels);
             }
         }
 
         return input;
+    }
+
+    private String getMethodResponseHeader(String name) {
+        return "method.response.header." + name;
     }
 
     private boolean isApiKeyRequired(Action action) {
@@ -199,5 +299,4 @@ public class ApiGatewaySdkRamlApiImporter extends GenericApiImporter implements 
         }
         return false;
     }
-
 }

@@ -153,53 +153,6 @@ public abstract class GenericApiImporter {
         }
     }
 
-    protected void createIntegrationResponses(Integration integration, HashMap<String, HashMap> integ) {
-
-        // todo: avoid unchecked casts
-        HashMap<String, HashMap> responses = (HashMap<String, HashMap>) integ.get("responses");
-
-        responses.entrySet().forEach(e -> {
-            String pattern = e.getKey().equals("default") ? null : e.getKey();
-            HashMap response = e.getValue();
-
-            String status = (String) response.get("statusCode");
-
-            PutIntegrationResponseInput input = new PutIntegrationResponseInput()
-                    .withResponseParameters((Map<String, String>) response.get("responseParameters"))
-                    .withResponseTemplates((Map<String, String>) response.get("responseTemplates"))
-                    .withSelectionPattern(pattern);
-
-            integration.putIntegrationResponse(input, status);
-        });
-    }
-
-    protected void createIntegration(Method method, Map<String, Object> vendorExtensions) {
-        if (!vendorExtensions.containsKey(EXTENSION_INTEGRATION)) {
-            return;
-        }
-
-        HashMap<String, HashMap> integ =
-                (HashMap<String, HashMap>) vendorExtensions.get(EXTENSION_INTEGRATION);
-
-        IntegrationType type = IntegrationType.valueOf(getStringValue(integ.get("type")).toUpperCase());
-
-        getLog().info("Creating integration with type " + type);
-
-        PutIntegrationInput input = new PutIntegrationInput()
-                .withType(type)
-                .withUri(getStringValue(integ.get("uri")))
-                .withCredentials(getStringValue(integ.get("credentials")))
-                .withHttpMethod((getStringValue(integ.get("httpMethod"))))
-                .withRequestParameters(integ.get("requestParameters"))
-                .withRequestTemplates(integ.get("requestTemplates"))
-                .withCacheNamespace(getStringValue(integ.get("cacheNamespace")))
-                .withCacheKeyParameters((List<String>) integ.get("cacheKeyParameters"));
-
-        Integration integration = method.putIntegration(input);
-
-        createIntegrationResponses(integration, integ);
-    }
-
     protected String getStringValue(Object in) {
         return in == null ? null : String.valueOf(in);  // use null value instead of "null"
     }
